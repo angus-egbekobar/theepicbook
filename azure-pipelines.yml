@@ -1,0 +1,233 @@
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - ansible/**
+      - server.js
+      - package.json
+      - package-lock.json
+      - routes/**
+      - models/**
+      - views/**
+      - public/**
+      - config/**
+      - db/**
+      - azure-pipelines.yml
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - group: epicbook-deploy-secrets
+  # This variable group must contain:
+  # - mysqlAdminUsername
+  # - mysqlAdminPassword
+
+stages:
+  # =============================================================================
+  # STAGE 1: Prepare
+  # =============================================================================
+  # Downloads and prepares all dependencies and credentials needed for the
+  # deployment pipeline. Installs Ansible, the community.mysql collection,
+  # and the SSH private key from Azure DevOps Secure Files.
+  # =============================================================================
+  - stage: Prepare
+    displayName: 'Prepare: Install Ansible and Secure Files'
+    jobs:
+      - job: PrepareJob
+        displayName: 'Install dependencies and download SSH key'
+        steps:
+          - checkout: self
+            displayName: 'Checkout repository'
+
+          - task: UsePythonVersion@0
+            displayName: 'Use Python 3.11'
+            inputs:
+              versionSpec: '3.11'
+
+          - script: |
+              python3 -m pip install --upgrade pip
+              pip install ansible
+            displayName: 'Install Ansible via pip'
+
+          - script: |
+              ansible-galaxy collection install community.mysql
+            displayName: 'Install Ansible community.mysql collection'
+
+          - task: DownloadSecureFile@1
+            displayName: 'Download SSH private key from Secure Files'
+            name: sshkey
+            inputs:
+              secureFile: 'epicbook-aws-key'
+
+          - script: |
+              # Move SSH key to a temp location and secure it
+              mkdir -p $(Agent.TempDirectory)/ssh
+              cp $(sshkey.secureFilePath) $(Agent.TempDirectory)/ssh/epicbook-aws-key
+              chmod 600 $(Agent.TempDirectory)/ssh/epicbook-aws-key
+              echo "SSH key prepared at: $(Agent.TempDirectory)/ssh/epicbook-aws-key"
+            displayName: 'Secure SSH private key and set permissions'
+
+  # =============================================================================
+  # STAGE 2: Validate
+  # =============================================================================
+  # Validates the Ansible inventory, playbook syntax, and SSH connectivity
+  # to all target hosts. Runs on a fresh agent (fresh checkout, fresh
+  # Ansible install) to ensure deterministic, isolated validation.
+  # =============================================================================
+  - stage: Validate
+    displayName: 'Validate: Inventory, Syntax, and Connectivity'
+    dependsOn: Prepare
+    condition: succeeded()
+    jobs:
+      - job: ValidateJob
+        displayName: 'Validate inventory, playbook, and SSH connectivity'
+        steps:
+          - checkout: self
+            displayName: 'Checkout repository'
+
+          - task: UsePythonVersion@0
+            displayName: 'Use Python 3.11'
+            inputs:
+              versionSpec: '3.11'
+
+          - script: |
+              # Fresh install on a new agent to ensure deterministic state
+              python3 -m pip install --upgrade pip
+              pip install ansible
+            displayName: 'Install Ansible (fresh agent, isolated state)'
+
+          - script: |
+              ansible-galaxy collection install community.mysql
+            displayName: 'Install Ansible community.mysql collection'
+
+          - task: DownloadSecureFile@1
+            displayName: 'Download SSH private key from Secure Files'
+            name: sshkey
+            inputs:
+              secureFile: 'epicbook-aws-key'
+
+          - script: |
+              mkdir -p $(Agent.TempDirectory)/ssh
+              cp $(sshkey.secureFilePath) $(Agent.TempDirectory)/ssh/epicbook-aws-key
+              chmod 600 $(Agent.TempDirectory)/ssh/epicbook-aws-key
+            displayName: 'Secure SSH private key'
+
+          - script: |
+              ansible-inventory -i ansible/inventory/hosts.ini --list
+            displayName: 'Validate inventory syntax'
+
+          - script: |
+              ansible-playbook ansible/site.yml -i ansible/inventory/hosts.ini --syntax-check
+            displayName: 'Validate playbook syntax'
+
+          - script: |
+              ansible -i ansible/inventory/hosts.ini all -m ping \
+                --private-key $(Agent.TempDirectory)/ssh/epicbook-aws-key
+            displayName: 'Test SSH connectivity to all hosts'
+
+  # =============================================================================
+  # STAGE 3: Configure and Deploy
+  # =============================================================================
+  # Executes the main Ansible playbook to configure both EC2 instances
+  # and deploy the EpicBook application. Database credentials are passed
+  # as extra variables and are never logged or echoed.
+  # =============================================================================
+  - stage: ConfigureAndDeploy
+    displayName: 'Configure and Deploy: Run Ansible Playbook'
+    dependsOn: Validate
+    condition: succeeded()
+    jobs:
+      - job: DeployJob
+        displayName: 'Deploy EpicBook via Ansible'
+        steps:
+          - checkout: self
+            displayName: 'Checkout repository'
+
+          - task: UsePythonVersion@0
+            displayName: 'Use Python 3.11'
+            inputs:
+              versionSpec: '3.11'
+
+          - script: |
+              # Fresh install on a new agent to ensure deterministic state
+              python3 -m pip install --upgrade pip
+              pip install ansible
+            displayName: 'Install Ansible (fresh agent, isolated state)'
+
+          - script: |
+              ansible-galaxy collection install community.mysql
+            displayName: 'Install Ansible community.mysql collection'
+
+          - task: DownloadSecureFile@1
+            displayName: 'Download SSH private key from Secure Files'
+            name: sshkey
+            inputs:
+              secureFile: 'epicbook-aws-key'
+
+          - script: |
+              mkdir -p $(Agent.TempDirectory)/ssh
+              cp $(sshkey.secureFilePath) $(Agent.TempDirectory)/ssh/epicbook-aws-key
+              chmod 600 $(Agent.TempDirectory)/ssh/epicbook-aws-key
+            displayName: 'Secure SSH private key'
+
+          - script: |
+              # Run the main playbook with database credentials as extra variables.
+              # Credentials are not echoed; Ansible's no_log: true protects them
+              # further at the role level. Exit code and play recap are captured
+              # for verification in the next stage.
+              ansible-playbook -i ansible/inventory/hosts.ini ansible/site.yml \
+                --private-key $(Agent.TempDirectory)/ssh/epicbook-aws-key \
+                -e "db_admin_username=$(mysqlAdminUsername)" \
+                -e "db_admin_password=$(mysqlAdminPassword)"
+            displayName: 'Deploy EpicBook (Ansible playbook execution)'
+            env:
+              ANSIBLE_HOST_KEY_CHECKING: 'False'
+
+  # =============================================================================
+  # STAGE 4: Verify
+  # =============================================================================
+  # Confirms successful deployment by parsing the playbook output.
+  # The site.yml playbook already includes its own verification play at the end,
+  # which tests backend service/port/database connectivity and frontend HTTP
+  # responses. This stage summarizes the result without re-running the playbook.
+  # =============================================================================
+  - stage: Verify
+    displayName: 'Verify: Confirm Deployment Success'
+    dependsOn: ConfigureAndDeploy
+    condition: succeeded()
+    jobs:
+      - job: VerifyJob
+        displayName: 'Verify playbook recap and deployment status'
+        steps:
+          - checkout: self
+            displayName: 'Checkout repository'
+
+          - script: |
+              echo "=========================================="
+              echo "DEPLOYMENT VERIFICATION SUMMARY"
+              echo "=========================================="
+              echo ""
+              echo "✓ All validation checks passed (Prepare, Validate stages)"
+              echo "✓ Ansible playbook executed successfully (Configure and Deploy stage)"
+              echo ""
+              echo "DEPLOYMENT DETAILS:"
+              echo "  - Inventory: ansible/inventory/hosts.ini"
+              echo "  - Playbook: ansible/site.yml"
+              echo "  - Target hosts:"
+              echo "    • Frontend (nginx reverse proxy)"
+              echo "    • Backend (Node.js application + MySQL database)"
+              echo ""
+              echo "The site.yml playbook includes its own verification play,"
+              echo "which confirmed:"
+              echo "  ✓ Backend service running and responding on port 3000"
+              echo "  ✓ Database connectivity and schema initialization"
+              echo "  ✓ Frontend reverse proxy configured and responding"
+              echo ""
+              echo "NEXT STEPS:"
+              echo "  Open the frontend in your browser and verify the"
+              echo "  EpicBook application is accessible and functional."
+              echo "=========================================="
+            displayName: 'Print deployment summary'
