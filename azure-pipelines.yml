@@ -17,7 +17,7 @@ trigger:
       - azure-pipelines.yml
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: StaticSiteAgentPool
 
 variables:
   - group: Epicbook-mysql-secrets
