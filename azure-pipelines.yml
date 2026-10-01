@@ -62,14 +62,14 @@ stages:
             displayName: 'Download SSH private key from Secure Files'
             name: sshkey
             inputs:
-              secureFile: 'epicbook-aws-key'
+              secureFile: 'epicbook-key.pem'
 
           - script: |
               # Move SSH key to a temp location and secure it
               mkdir -p $(Agent.TempDirectory)/ssh
-              cp $(sshkey.secureFilePath) $(Agent.TempDirectory)/ssh/epicbook-aws-key
-              chmod 600 $(Agent.TempDirectory)/ssh/epicbook-aws-key
-              echo "SSH key prepared at: $(Agent.TempDirectory)/ssh/epicbook-aws-key"
+              cp $(sshkey.secureFilePath) $(Agent.TempDirectory)/ssh/epicbook-key.pem
+              chmod 600 $(Agent.TempDirectory)/ssh/epicbook-key.pem
+              echo "SSH key prepared at: $(Agent.TempDirectory)/ssh/epicbook-key.pem"
             displayName: 'Secure SSH private key and set permissions'
 
   # =============================================================================
@@ -109,12 +109,12 @@ stages:
             displayName: 'Download SSH private key from Secure Files'
             name: sshkey
             inputs:
-              secureFile: 'epicbook-aws-key'
+              secureFile: 'epicbook-key.pem'
 
           - script: |
               mkdir -p $(Agent.TempDirectory)/ssh
-              cp $(sshkey.secureFilePath) $(Agent.TempDirectory)/ssh/epicbook-aws-key
-              chmod 600 $(Agent.TempDirectory)/ssh/epicbook-aws-key
+              cp $(sshkey.secureFilePath) $(Agent.TempDirectory)/ssh/epicbook-key.pem
+              chmod 600 $(Agent.TempDirectory)/ssh/epicbook-key.pem
             displayName: 'Secure SSH private key'
 
           - script: |
@@ -127,7 +127,7 @@ stages:
 
           - script: |
               ansible -i ansible/inventory/hosts.ini all -m ping \
-                --private-key $(Agent.TempDirectory)/ssh/epicbook-aws-key
+                --private-key $(Agent.TempDirectory)/ssh/epicbook-key.pem
             displayName: 'Test SSH connectivity to all hosts'
 
   # =============================================================================
@@ -167,12 +167,12 @@ stages:
             displayName: 'Download SSH private key from Secure Files'
             name: sshkey
             inputs:
-              secureFile: 'epicbook-aws-key'
+              secureFile: 'epicbook-key.pem'
 
           - script: |
               mkdir -p $(Agent.TempDirectory)/ssh
-              cp $(sshkey.secureFilePath) $(Agent.TempDirectory)/ssh/epicbook-aws-key
-              chmod 600 $(Agent.TempDirectory)/ssh/epicbook-aws-key
+              cp $(sshkey.secureFilePath) $(Agent.TempDirectory)/ssh/epicbook-key.pem
+              chmod 600 $(Agent.TempDirectory)/ssh/epicbook-key.pem
             displayName: 'Secure SSH private key'
 
           - script: |
@@ -181,7 +181,7 @@ stages:
               # further at the role level. Exit code and play recap are captured
               # for verification in the next stage.
               ansible-playbook -i ansible/inventory/hosts.ini ansible/site.yml \
-                --private-key $(Agent.TempDirectory)/ssh/epicbook-aws-key \
+                --private-key $(Agent.TempDirectory)/ssh/epicbook-key.pem \
                 -e "db_admin_username=$(mysqlAdminUsername)" \
                 -e "db_admin_password=$(mysqlAdminPassword)"
             displayName: 'Deploy EpicBook (Ansible playbook execution)'
