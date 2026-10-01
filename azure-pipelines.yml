@@ -20,7 +20,7 @@ pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  - group: epicbook-deploy-secrets
+  - group: Epicbook-mysql-secrets
   - name: ANSIBLE_HOST_KEY_CHECKING
     value: 'False'
   # This variable group must contain:
