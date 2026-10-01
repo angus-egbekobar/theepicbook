@@ -21,6 +21,8 @@ pool:
 
 variables:
   - group: epicbook-deploy-secrets
+  - name: ANSIBLE_HOST_KEY_CHECKING
+    value: 'False'
   # This variable group must contain:
   # - mysqlAdminUsername
   # - mysqlAdminPassword
