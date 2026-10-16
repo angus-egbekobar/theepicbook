@@ -1,9 +1,9 @@
 {
   "development": {
-    "username": "root",
-    "password": "demo1234",
-    "database": "bookstore",
-    "host": "127.0.0.1",
+    "username": "admin",
+    "password": "",
+    "database": "epicbook",
+    "host": "",
     "dialect": "mysql"
   },
   "test": {
